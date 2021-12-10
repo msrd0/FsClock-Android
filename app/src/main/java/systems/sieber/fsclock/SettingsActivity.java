@@ -31,43 +31,7 @@ import android.widget.NumberPicker;
 import android.widget.SeekBar;
 import android.widget.Toast;
 
-import com.amazon.device.iap.PurchasingListener;
-import com.amazon.device.iap.model.FulfillmentResult;
-import com.amazon.device.iap.model.Product;
-import com.amazon.device.iap.model.ProductDataResponse;
-import com.amazon.device.iap.model.PurchaseResponse;
-import com.amazon.device.iap.model.PurchaseUpdatesResponse;
-import com.amazon.device.iap.model.Receipt;
-import com.amazon.device.iap.model.UserDataResponse;
-import com.android.billingclient.api.BillingClient;
-import com.android.billingclient.api.BillingClientStateListener;
-import com.android.billingclient.api.BillingFlowParams;
-import com.android.billingclient.api.BillingResult;
-import com.android.billingclient.api.Purchase;
-import com.android.billingclient.api.PurchasesUpdatedListener;
-import com.android.billingclient.api.SkuDetails;
-import com.android.billingclient.api.SkuDetailsParams;
-import com.android.billingclient.api.SkuDetailsResponseListener;
 import com.google.gson.Gson;
-import com.huawei.hmf.tasks.OnFailureListener;
-import com.huawei.hmf.tasks.OnSuccessListener;
-import com.huawei.hmf.tasks.Task;
-import com.huawei.hms.iap.Iap;
-import com.huawei.hms.iap.IapApiException;
-import com.huawei.hms.iap.IapClient;
-import com.huawei.hms.iap.entity.ConsumeOwnedPurchaseReq;
-import com.huawei.hms.iap.entity.ConsumeOwnedPurchaseResult;
-import com.huawei.hms.iap.entity.InAppPurchaseData;
-import com.huawei.hms.iap.entity.OrderStatusCode;
-import com.huawei.hms.iap.entity.ProductInfo;
-import com.huawei.hms.iap.entity.ProductInfoReq;
-import com.huawei.hms.iap.entity.ProductInfoResult;
-import com.huawei.hms.iap.entity.PurchaseIntentReq;
-import com.huawei.hms.iap.entity.PurchaseIntentResult;
-import com.huawei.hms.iap.entity.PurchaseResultInfo;
-import com.huawei.hms.support.api.client.Status;
-
-import com.amazon.device.iap.PurchasingService;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -88,16 +52,10 @@ public class SettingsActivity extends AppCompatActivity {
     static final int PICK_SECONDS_HAND_REQUEST = 4;
     static final int PICK_BACKGROUND_REQUEST = 5;
 
-    static final int HUAWEI_PURCHASE_REQUEST = 6666;
-
     boolean mLoadHuaweiIap = false;
     boolean mLoadAmazonIap = false;
 
     SettingsActivity me;
-
-    FeatureCheck mFc;
-    BillingClient mBillingClient;
-    SkuDetails skuDetailsUnlockSettings;
 
     Gson mGson = new Gson();
     ArrayList<Event> mEvents = new ArrayList<>();
@@ -224,18 +182,6 @@ public class SettingsActivity extends AppCompatActivity {
         initColorPreview();
 
         // init purchases
-        try {
-            ApplicationInfo ai = getPackageManager().getApplicationInfo(getPackageName(), PackageManager.GET_META_DATA);
-            if(ai.metaData.getInt("huaweiiap", 0) > 0) mLoadHuaweiIap = true;
-            if(ai.metaData.getInt("amazoniap", 0) > 0) mLoadAmazonIap = true;
-        } catch(PackageManager.NameNotFoundException ignored) { }
-        mButtonUnlockSettings.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override
-            public boolean onLongClick(View view) {
-                openUnlockInputBox("systems.sieber.fsclock.settings", "settings");
-                return false;
-            }
-        });
         loadPurchases();
     }
 
@@ -271,221 +217,8 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private void loadPurchases() {
-        // disable settings by default
-        mLinearLayoutPurchaseContainer.setVisibility(View.VISIBLE);
-        enableDisableAllSettings(false);
-
-        // load in-app purchases
-        mFc = new FeatureCheck(this);
-        mFc.setFeatureCheckReadyListener(new FeatureCheck.featureCheckReadyListener() {
-            @Override
-            public void featureCheckReady(boolean fetchSuccess) {
-                if(mFc.unlockedSettings) {
-                    mLinearLayoutPurchaseContainer.setVisibility(View.GONE);
-                    enableDisableAllSettings(true);
-                }
-            }
-        });
-        mFc.init();
-
-
-        if(mLoadHuaweiIap) {
-
-            // init Huawei billing client
-            IapClient iapClient = Iap.getIapClient(this);
-            Task<ProductInfoResult> task = iapClient.obtainProductInfo(createProductInfoReq());
-            task.addOnSuccessListener(new OnSuccessListener<ProductInfoResult>() {
-                @Override
-                public void onSuccess(ProductInfoResult result) {
-                    if(result != null && !result.getProductInfoList().isEmpty()) {
-                        for(ProductInfo pi : result.getProductInfoList()) {
-                            setupPayButton(pi.getProductId(), pi.getPrice());
-                        }
-                    }
-                }
-            }).addOnFailureListener(new OnFailureListener() {
-                @Override
-                public void onFailure(Exception e) {
-                    Log.e("IAP", e.getMessage());
-                }
-            });
-
-        } else if(mLoadAmazonIap) {
-
-            // init amazon billing client
-            final AmazonPurchasingListener purchasingListener = new AmazonPurchasingListener(this);
-            PurchasingService.registerListener(this.getApplicationContext(), purchasingListener);
-            final Set<String> productSkus = new HashSet<String>();
-            productSkus.add("settings");
-            PurchasingService.getProductData(productSkus);
-            PurchasingService.getPurchaseUpdates(true);
-
-        } else {
-
-            // init Google billing client
-            mBillingClient = BillingClient.newBuilder(this)
-                    .enablePendingPurchases()
-                    .setListener(new PurchasesUpdatedListener() {
-                        @Override
-                        public void onPurchasesUpdated(@NonNull BillingResult billingResult, List<Purchase> purchases) {
-                            int responseCode = billingResult.getResponseCode();
-                            if(responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
-                                Log.i("BILLING", "onPurchasesUpdated OK");
-                                for(Purchase purchase : purchases) {
-                                    if(purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED) {
-                                        mFc.unlockPurchase(purchase.getSku());
-                                        FeatureCheck.acknowledgePurchase(mBillingClient, purchase);
-                                        loadPurchases();
-                                    }
-                                }
-                            } else {
-                                Log.e("BILLING", billingResult.getResponseCode() + " " + billingResult.getDebugMessage());
-                            }
-                        }
-                    }).build();
-            mBillingClient.startConnection(new BillingClientStateListener() {
-                @Override
-                public void onBillingSetupFinished(@NonNull BillingResult billingResult) {
-                    if(billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                        Log.i("BILLING", "onBillingSetupFinished OK");
-                        querySkus();
-                    } else {
-                        Log.e("BILLING", billingResult.getResponseCode() + " " + billingResult.getDebugMessage());
-                    }
-                }
-                @Override
-                public void onBillingServiceDisconnected() { }
-            });
-
-        }
-    }
-    private ProductInfoReq createProductInfoReq() {
-        ProductInfoReq req = new ProductInfoReq();
-        req.setPriceType(IapClient.PriceType.IN_APP_NONCONSUMABLE);
-        ArrayList<String> productIds = new ArrayList<>();
-        productIds.add("settings");
-        req.setProductIds(productIds);
-        return req;
-    }
-    private void querySkus() {
-        ArrayList<String> skuList = new ArrayList<>();
-        skuList.add("settings");
-        SkuDetailsParams.Builder params = SkuDetailsParams
-                .newBuilder()
-                .setSkusList(skuList)
-                .setType(BillingClient.SkuType.INAPP);
-        mBillingClient.querySkuDetailsAsync(params.build(), new SkuDetailsResponseListener() {
-            @SuppressWarnings("SwitchStatementWithTooFewBranches")
-            @SuppressLint("SetTextI18n")
-            @Override
-            public void onSkuDetailsResponse(@NonNull BillingResult billingResult, List<SkuDetails> skuDetailsList) {
-                if(billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK && skuDetailsList != null) {
-                    Log.i("BILLING", "onSkuDetailsResponse OK : " + skuDetailsList.size());
-                    for(SkuDetails skuDetails : skuDetailsList) {
-                        String sku = skuDetails.getSku();
-                        String price = skuDetails.getPrice();
-                        setupPayButton(sku, price, skuDetails);
-                    }
-                } else {
-                    Log.e("BILLING", billingResult.getResponseCode() + " " + billingResult.getDebugMessage());
-                }
-            }
-        });
-    }
-    private void setupPayButton(String sku, String price) {
-        setupPayButton(sku, price, null);
-    }
-    @SuppressLint("SetTextI18n")
-    @SuppressWarnings("SwitchStatementWithTooFewBranches")
-    private void setupPayButton(String sku, String price, SkuDetails skuDetails) {
-        switch(sku) {
-            case "settings":
-                if(skuDetails != null) skuDetailsUnlockSettings = skuDetails;
-                mButtonUnlockSettings.setEnabled(true);
-                mButtonUnlockSettings.setText( getString(R.string.unlock_settings) + " (" + price + ")" );
-                break;
-        }
-    }
-    public void doBuyUnlockSettings(View v) {
-        if(mLoadHuaweiIap) {
-            doBuyHuawei("settings", IapClient.PriceType.IN_APP_NONCONSUMABLE);
-        } else if(mLoadAmazonIap) {
-            PurchasingService.purchase("settings");
-        } else {
-            doBuy(skuDetailsUnlockSettings);
-        }
-    }
-    @SuppressWarnings("UnusedReturnValue")
-    private BillingResult doBuy(SkuDetails sku) {
-        if(sku == null) return null;
-        BillingFlowParams flowParams = BillingFlowParams.newBuilder()
-                .setSkuDetails(sku)
-                .build();
-        return mBillingClient.launchBillingFlow(this, flowParams);
-    }
-    private void doBuyHuawei(String productId, int type) {
-        IapClient mClient = Iap.getIapClient(this);
-        Task<PurchaseIntentResult> task = mClient.createPurchaseIntent(createPurchaseIntentReq(type, productId));
-        task.addOnSuccessListener(new OnSuccessListener<PurchaseIntentResult>() {
-            @Override
-            public void onSuccess(PurchaseIntentResult result) {
-                try {
-                    if(result == null) throw new Exception("Error: Result is null");
-                    Status status = result.getStatus();
-                    if(status == null) throw new Exception("Error: Status is null");
-                    if(!status.hasResolution()) throw new Exception("Error: Intent is null");
-                    status.startResolutionForResult(me, HUAWEI_PURCHASE_REQUEST);
-                } catch(Exception e) {
-                    Toast.makeText(me, e.getMessage(), Toast.LENGTH_SHORT).show();
-                }
-            }
-        }).addOnFailureListener(new OnFailureListener() {
-            @Override
-            public void onFailure(Exception e) {
-                Toast.makeText(me, e.getMessage(), Toast.LENGTH_SHORT).show();
-            }
-        });
-    }
-    private PurchaseIntentReq createPurchaseIntentReq(int type, String productId) {
-        PurchaseIntentReq req = new PurchaseIntentReq();
-        req.setProductId(productId);
-        req.setPriceType(type);
-        //req.setDeveloperPayload("test");
-        return req;
-    }
-    private void consumeOwnedPurchase(final Context context, String inAppPurchaseData) {
-        IapClient mClient = Iap.getIapClient(context);
-        Task<ConsumeOwnedPurchaseResult> task = mClient.consumeOwnedPurchase(createConsumeOwnedPurchaseReq(inAppPurchaseData));
-        task.addOnSuccessListener(new OnSuccessListener<ConsumeOwnedPurchaseResult>() {
-            @Override
-            public void onSuccess(ConsumeOwnedPurchaseResult result) {
-                // Consume success
-                Log.i("IAP", "Pay success, and the product has been delivered");
-            }
-        }).addOnFailureListener(new OnFailureListener() {
-            @Override
-            public void onFailure(Exception e) {
-                Log.e("IAP", e.getMessage());
-                Toast.makeText(context, e.getMessage(), Toast.LENGTH_SHORT).show();
-                if(e instanceof IapApiException) {
-                    IapApiException apiException = (IapApiException)e;
-                    Status status = apiException.getStatus();
-                    int returnCode = apiException.getStatusCode();
-                    Log.e("IAP", "consumeOwnedPurchase fail,returnCode: " + returnCode);
-                }
-            }
-        });
-    }
-    private ConsumeOwnedPurchaseReq createConsumeOwnedPurchaseReq(String purchaseData) {
-        ConsumeOwnedPurchaseReq req = new ConsumeOwnedPurchaseReq();
-        // Parse purchaseToken from InAppPurchaseData in JSON format.
-        try {
-            InAppPurchaseData inAppPurchaseData = new InAppPurchaseData(purchaseData);
-            req.setPurchaseToken(inAppPurchaseData.getPurchaseToken());
-        } catch(Exception e) {
-            Log.e("IAP", "createConsumeOwnedPurchaseReq JSONExeption");
-        }
-        return req;
+        mLinearLayoutPurchaseContainer.setVisibility(View.GONE);
+        enableDisableAllSettings(true);
     }
 
     @Override
@@ -494,39 +227,6 @@ public class SettingsActivity extends AppCompatActivity {
         if(resultCode != RESULT_OK) return;
 
         switch(requestCode) {
-            case(HUAWEI_PURCHASE_REQUEST) : {
-                PurchaseResultInfo purchaseResultInfo = Iap.getIapClient(this).parsePurchaseResultInfoFromIntent(data);
-                switch(purchaseResultInfo.getReturnCode()) {
-                    case OrderStatusCode.ORDER_STATE_SUCCESS:
-                        try {
-                            //consumeOwnedPurchase(this, purchaseResultInfo.getInAppPurchaseData()); // DO NOT USE THIS FOR NON-CONSUMABLES!
-                            InAppPurchaseData inAppPurchaseData = new InAppPurchaseData(purchaseResultInfo.getInAppPurchaseData());
-                            Log.e("IAP", "unlocked "+inAppPurchaseData.getProductId());
-                            mFc.unlockPurchase(inAppPurchaseData.getProductId());
-                            loadPurchases();
-                        } catch(Exception e) {
-                            Log.e("IAP", e.getMessage());
-                        }
-                        return;
-                    case OrderStatusCode.ORDER_STATE_CANCEL:
-                        // The User cancels payment.
-                        //Toast.makeText(this, "user cancel", Toast.LENGTH_SHORT).show();
-                        return;
-                    case OrderStatusCode.ORDER_PRODUCT_OWNED:
-                        //Toast.makeText(this, "you have owned the product", Toast.LENGTH_SHORT).show();
-                        try {
-                            mFc.unlockPurchase("settings");
-                            loadPurchases();
-                        } catch(Exception e) {
-                            Log.e("IAP", e.getMessage());
-                        }
-                        return;
-                    default:
-                        Toast.makeText(this, "Pay failed", Toast.LENGTH_SHORT).show();
-                        break;
-                }
-                break;
-            }
             case(PICK_CLOCK_FACE_REQUEST) : {
                 processImage(getStorage(this, FILENAME_CLOCK_FACE), data);
                 break;
@@ -701,49 +401,6 @@ public class SettingsActivity extends AppCompatActivity {
         }
     }
 
-    @SuppressWarnings("SameParameterValue")
-    private void openUnlockInputBox(final String requestFeature, final String sku) {
-        final Dialog ad = new Dialog(this);
-        ad.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        ad.setContentView(R.layout.dialog_inputbox);
-        ad.findViewById(R.id.buttonOK).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                ad.dismiss();
-                String text = ((EditText) ad.findViewById(R.id.editTextInputBox)).getText().toString().trim();
-                HttpRequest hr = new HttpRequest(getResources().getString(R.string.unlock_api), null);
-                ArrayList<KeyValueItem> headers = new ArrayList<>();
-                headers.add(new KeyValueItem("X-Unlock-Feature",requestFeature));
-                headers.add(new KeyValueItem("X-Unlock-Code",text));
-                hr.setRequestHeaders(headers);
-                hr.setReadyListener(new HttpRequest.readyListener() {
-                    @Override
-                    public void ready(int statusCode, String responseBody) {
-                        if(statusCode == 999 && responseBody.trim().equals("")) {
-                            mFc.unlockPurchase(sku);
-                            loadPurchases();
-                        } else {
-                            Log.i("ACTIVATION", "> " + responseBody);
-                            AlertDialog ad = new AlertDialog.Builder(me).create();
-                            ad.setMessage(getResources().getString(R.string.activation_failed));
-                            ad.setButton(getResources().getString(R.string.ok), new DialogInterface.OnClickListener() {
-                                @Override
-                                public void onClick(DialogInterface dialog, int which) {
-                                    dialog.dismiss();
-                                }
-                            });
-                            ad.show();
-                        }
-                    }
-                });
-                hr.execute();
-            }
-        });
-        if(ad.getWindow() != null)
-            ad.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
-        ad.show();
-    }
-
     public void newEvent(View v) {
         final Dialog ad = new Dialog(this);
         ad.requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -889,87 +546,6 @@ public class SettingsActivity extends AppCompatActivity {
         File exportDir = c.getExternalFilesDir(null);
         return new File(exportDir, filename);
     }
-
-    static class AmazonPurchasingListener implements PurchasingListener {
-        SettingsActivity mSettingsActivityReference;
-        public AmazonPurchasingListener(SettingsActivity sa) {
-            this.mSettingsActivityReference = sa;
-        }
-        @Override
-        public void onUserDataResponse(final UserDataResponse response) {
-            final UserDataResponse.RequestStatus status = response.getRequestStatus();
-            switch(status) {
-                case SUCCESSFUL:
-                    //iapManager.setAmazonUserId(response.getUserData().getUserId(), response.getUserData().getMarketplace());
-                    break;
-                case FAILED:
-                case NOT_SUPPORTED:
-                    break;
-            }
-        }
-        @Override
-        public void onProductDataResponse(final ProductDataResponse response) {
-            final ProductDataResponse.RequestStatus status = response.getRequestStatus();
-            switch(status) {
-                case SUCCESSFUL:
-                    for(Product p : response.getProductData().values()) {
-                        if(p.getSku().equals("settings")) {
-                            mSettingsActivityReference.setupPayButton(p.getSku(), p.getPrice());
-                        }
-                    }
-                    break;
-                case FAILED:
-                case NOT_SUPPORTED:
-                    break;
-            }
-        }
-        @Override
-        public void onPurchaseUpdatesResponse(final PurchaseUpdatesResponse response) {
-            final PurchaseUpdatesResponse.RequestStatus status = response.getRequestStatus();
-            switch(status) {
-                case SUCCESSFUL:
-                    for(final Receipt receipt : response.getReceipts()) {
-                        if(!receipt.isCanceled() && receipt.getSku().equals("settings")) {
-                            mSettingsActivityReference.mFc.unlockPurchase(receipt.getSku());
-                            mSettingsActivityReference.loadPurchases();
-                            PurchasingService.notifyFulfillment(receipt.getReceiptId(), FulfillmentResult.FULFILLED);
-                        }
-                    }
-                    if(response.hasMore()) {
-                        PurchasingService.getPurchaseUpdates(false);
-                    }
-                    break;
-                case FAILED:
-                case NOT_SUPPORTED:
-                    break;
-            }
-        }
-        @Override
-        public void onPurchaseResponse(final PurchaseResponse response) {
-            final String requestId = response.getRequestId().toString();
-            final String userId = response.getUserData().getUserId();
-            final PurchaseResponse.RequestStatus status = response.getRequestStatus();
-            switch(status) {
-                case SUCCESSFUL:
-                case ALREADY_PURCHASED:
-                    final Receipt receipt = response.getReceipt();
-                    if(!receipt.isCanceled() && receipt.getSku().equals("settings")) {
-                        mSettingsActivityReference.mFc.unlockPurchase(receipt.getSku());
-                        mSettingsActivityReference.loadPurchases();
-                        PurchasingService.notifyFulfillment(receipt.getReceiptId(), FulfillmentResult.FULFILLED);
-                    }
-                    break;
-                case INVALID_SKU:
-                    //final Set<String> unavailableSkus = new HashSet<String>();
-                    //unavailableSkus.add(response.getReceipt().getSku());
-                    break;
-                case FAILED:
-                case NOT_SUPPORTED:
-                    break;
-            }
-        }
-    }
-
 
     public final static String URL_GITHUB          = "https://github.com/schorschii/FsClock-Android";
     public final static String APPID_CUSTOMERDB    = "de.georgsieber.customerdb";

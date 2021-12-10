@@ -27,7 +27,6 @@
                     android:enabled="true"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:onClick="doBuyUnlockSettings"
                     android:text="@string/unlock_settings" />
                 <TextView
                     android:layout_width="match_parent"
