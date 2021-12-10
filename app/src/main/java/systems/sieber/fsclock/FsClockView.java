@@ -21,6 +21,7 @@ import android.provider.CalendarContract;
 import android.speech.tts.TextToSpeech;
 import android.text.format.DateFormat;
 import android.util.AttributeSet;
+import android.util.Log;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -204,11 +205,16 @@ public class FsClockView extends FrameLayout {
     }
 
     void loadSettings(Activity a) {
+        Log.i("FsClockView", "Loading Settings (a is " + (a==null ? "null" : "not null") + ")");
         if(a != null) {
-            if(mSharedPref.getBoolean("keep-screen-on", true))
+            if(mSharedPref.getBoolean("keep-screen-on", true)) {
                 a.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            else
+                Log.i("FsClockView", "Enabling KEEP_SCREEN_ON");
+            }
+            else {
                 a.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                Log.i("FsClockView", "Disabling KEEP_SCREEN_ON");
+            }
         }
 
         Gson gson = new Gson();
